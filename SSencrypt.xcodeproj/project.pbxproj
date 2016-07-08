@@ -12,6 +12,9 @@
 		69A4AD1C1D2FEE41008963FB /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 69A4AD1A1D2FEE41008963FB /* Main.storyboard */; };
 		69A4AD1E1D2FEE41008963FB /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 69A4AD1D1D2FEE41008963FB /* Assets.xcassets */; };
 		69A4AD211D2FEE41008963FB /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 69A4AD1F1D2FEE41008963FB /* LaunchScreen.storyboard */; };
+		69A4AD291D2FEE66008963FB /* SFEncrypt.swift in Sources */ = {isa = PBXBuildFile; fileRef = 69A4AD281D2FEE66008963FB /* SFEncrypt.swift */; };
+		69A4AD2B1D2FEE98008963FB /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 69A4AD2A1D2FEE98008963FB /* Security.framework */; };
+		69A4AD2F1D2FEF0C008963FB /* TestObject.m in Sources */ = {isa = PBXBuildFile; fileRef = 69A4AD2E1D2FEF0C008963FB /* TestObject.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -22,6 +25,11 @@
 		69A4AD1D1D2FEE41008963FB /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		69A4AD201D2FEE41008963FB /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		69A4AD221D2FEE41008963FB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		69A4AD281D2FEE66008963FB /* SFEncrypt.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = SFEncrypt.swift; sourceTree = "<group>"; };
+		69A4AD2A1D2FEE98008963FB /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		69A4AD2C1D2FEF0B008963FB /* SSencrypt-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "SSencrypt-Bridging-Header.h"; sourceTree = "<group>"; };
+		69A4AD2D1D2FEF0C008963FB /* TestObject.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = TestObject.h; sourceTree = "<group>"; };
+		69A4AD2E1D2FEF0C008963FB /* TestObject.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = TestObject.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -29,6 +37,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				69A4AD2B1D2FEE98008963FB /* Security.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -38,8 +47,12 @@
 		69A4AD0A1D2FEE41008963FB = {
 			isa = PBXGroup;
 			children = (
+				69A4AD2D1D2FEF0C008963FB /* TestObject.h */,
+				69A4AD2E1D2FEF0C008963FB /* TestObject.m */,
+				69A4AD2A1D2FEE98008963FB /* Security.framework */,
 				69A4AD151D2FEE41008963FB /* SSencrypt */,
 				69A4AD141D2FEE41008963FB /* Products */,
+				69A4AD2C1D2FEF0B008963FB /* SSencrypt-Bridging-Header.h */,
 			);
 			sourceTree = "<group>";
 		};
@@ -60,6 +73,7 @@
 				69A4AD1D1D2FEE41008963FB /* Assets.xcassets */,
 				69A4AD1F1D2FEE41008963FB /* LaunchScreen.storyboard */,
 				69A4AD221D2FEE41008963FB /* Info.plist */,
+				69A4AD281D2FEE66008963FB /* SFEncrypt.swift */,
 			);
 			path = SSencrypt;
 			sourceTree = "<group>";
@@ -136,6 +150,8 @@
 			buildActionMask = 2147483647;
 			files = (
 				69A4AD191D2FEE41008963FB /* ViewController.swift in Sources */,
+				69A4AD291D2FEE66008963FB /* SFEncrypt.swift in Sources */,
+				69A4AD2F1D2FEF0C008963FB /* TestObject.m in Sources */,
 				69A4AD171D2FEE41008963FB /* AppDelegate.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -249,10 +265,13 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_MODULES = YES;
 				INFOPLIST_FILE = SSencrypt/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = com.yarshure.SSencrypt;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OBJC_BRIDGING_HEADER = "SSencrypt-Bridging-Header.h";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
 			name = Debug;
 		};
@@ -260,10 +279,12 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CLANG_ENABLE_MODULES = YES;
 				INFOPLIST_FILE = SSencrypt/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
 				PRODUCT_BUNDLE_IDENTIFIER = com.yarshure.SSencrypt;
 				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_OBJC_BRIDGING_HEADER = "SSencrypt-Bridging-Header.h";
 			};
 			name = Release;
 		};

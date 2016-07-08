@@ -14,7 +14,23 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
 
+    func test(){
+        let key:String = "asecret16bytekey"
+        let engine = SSEncrypt.init(password: key, method: "test")
+        
+        let msg:NSData = "BSD".dataUsingEncoding(NSUTF8StringEncoding)!
+        print(msg)
+        //let data = key.dataUsingEncoding(NSUTF8StringEncoding)!
+        if let r = engine.encrypt(msg){
+            print(r)
+            if let r2 = engine.decrypt(r){
+                print(r2)
+            }
+        }
+        
+    }
     func application(application: UIApplication, didFinishLaunchingWithOptions launchOptions: [NSObject: AnyObject]?) -> Bool {
+        test()
         // Override point for customization after application launch.
         return true
     }
