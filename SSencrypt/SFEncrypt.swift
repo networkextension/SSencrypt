@@ -25,29 +25,37 @@ let  config_ciphers = [
     "chacha20":false,
     "chacha20-ietf":false
 ]
-struct enc_ctx {
-    var method:String = "aes-256-cfb"
-    var ramdonKey:String = ""
-}
-class SSEncrypt {
-    var send_ctx:CCCryptorRef?
-    var receive_ctx:CCCryptorRef?
-    var iv:NSData?
-    init(password:String,method:String) {
+extension NSData {
+    var md5: NSData! {
+        //let str = self.cStringUsingEncoding(NSUTF8StringEncoding)
+        //let strLen = CC_LONG(self.lengthOfBytesUsingEncoding(NSUTF8StringEncoding))
+        let digestLen = Int(CC_MD5_DIGEST_LENGTH)
+        let result = UnsafeMutablePointer<CUnsignedChar>.alloc(digestLen)
         
+        CC_MD5(self.bytes, CC_LONG(self.length), result)
         
-        iv =  getSecureRandom(16)
-        receive_ctx = create_enc(CCOperation(kCCDecrypt), key: password.dataUsingEncoding(NSUTF8StringEncoding)!)
-        send_ctx = create_enc(CCOperation(kCCEncrypt), key: password.dataUsingEncoding(NSUTF8StringEncoding)!)
+        //let hash = NSMutableString()
+        //for i in 0..<digestLen {
+        //    hash.appendFormat("%02x", result[i])
+        //}
+        let x = NSData.init(bytes: result, length: digestLen)
+        result.dealloc(digestLen)
         
+        return x
     }
-    func create_enc(op:CCOperation,key:NSData) -> CCCryptorRef {
+}
+class enc_ctx {
+    var method:String = "aes-256-cfb"
+    
+    var IV:NSData
+    var ctx:CCCryptorRef
+    static func create_enc(op:CCOperation,key:NSData,iv:NSData) -> CCCryptorRef {
         var  cryptor :CCCryptorRef = nil
         let  createDecrypt:CCCryptorStatus = CCCryptorCreateWithMode(op, // operation
             CCMode(kCCModeCFB), // mode CTR
             CCAlgorithm(kCCAlgorithmAES128),//kCCAlgorithmAES, // Algorithm
             CCPadding(ccNoPadding), // padding
-            iv!.bytes, // can be NULL, because null is full of zeros
+            iv.bytes, // can be NULL, because null is full of zeros
             key.bytes, // key
             key.length, // keylength
             nil, //const void *tweak
@@ -60,10 +68,93 @@ class SSEncrypt {
         }else {
             return nil
         }
-    
+        
     }
+    init(key:NSData,iv:NSData,encrypt:Bool){
+        if encrypt {
+            ctx = enc_ctx.create_enc(CCOperation(kCCEncrypt), key: key,iv: iv)
+        }else {
+            ctx = enc_ctx.create_enc(CCOperation(kCCDecrypt), key: key,iv: iv)
+        }
+        IV = iv
+        
+    }
+    deinit {
+        CCCryptorRelease(ctx)
+    }
+}
+class SSEncrypt {
+    var send_ctx:enc_ctx?
+    var recv_ctx:enc_ctx?
+    static var ramdonKey:NSData?
+    static var iv_cache:[NSData] = []
+    static func have_iv(i:NSData) ->Bool {
+        for x in SSEncrypt.iv_cache {
+            if x.isEqualToData(i){
+                return true
+            }
+        }
+        
+        return false
+        
+    }
+    deinit {
+        
+    }
+    init(password:String,method:String) {
+        
+        SSEncrypt.ramdonKey = SSEncrypt.evpBytesToKey(password,keyLen: password.characters.count)
+        let iv =  getSecureRandom(16)
+        //        let x = password.dataUsingEncoding(NSUTF8StringEncoding)!
+        //        let data = NSMutableData.init(length: 32)
+        //memcpy((data?.mutableBytes)!, x.bytes, x.length)
+        //receive_ctx = create_enc(CCOperation(kCCDecrypt), key: key)
+        send_ctx = enc_ctx.init(key: SSEncrypt.ramdonKey!, iv: iv, encrypt: true)
+        SSEncrypt.iv_cache.append(iv)
+        
+    }
+    func recvCTX(iv:NSData){
+        if SSEncrypt.have_iv(iv){
+            //logStream.write("cryto iv dup error")
+            recv_ctx = enc_ctx.init(key: SSEncrypt.ramdonKey!, iv: iv, encrypt: false)
+            SSEncrypt.iv_cache.append(iv)
+            //fatalError()
+        }else {
+            recv_ctx = enc_ctx.init(key: SSEncrypt.ramdonKey!, iv: iv, encrypt: false)
+            SSEncrypt.iv_cache.append(iv)
+        }
+        
+    }
+    static func evpBytesToKey(password:String, keyLen:Int) ->NSData {
+        let  md5Len:Int = 16
+        
+        let cnt = 1// (keyLen -1)/md5Len + 1
+        let m = NSMutableData.init(length: cnt*md5Len)!
+        let bytes = password.dataUsingEncoding(NSUTF8StringEncoding, allowLossyConversion: false)!
+        // memcpy((m?.mutableBytes)!, bytes.bytes , password.characters.count)
+        let md5 = bytes.md5
+        m.setData(md5)
+        
+        
+        // Repeatedly call md5 until bytes generated is enough.
+        // Each call to md5 uses data: prev md5 sum + password.
+        let d = NSMutableData.init(length: md5Len+bytes.length)!
+        //d := make([]byte, md5Len+len(password))
+        var start = 0
+        for _ in 0 ..< cnt {
+            start += md5Len
+            memcpy(d.mutableBytes,m.bytes , m.length)
+            memcpy(d.mutableBytes+md5Len, bytes.bytes, bytes.length)
+            let md5 = d.md5
+            m.appendData(md5)
+        }
+        
+        
+        return m
+    }
+    
     func decrypt(encrypt_bytes:NSData) ->NSData?{
-        if (  encrypt_bytes.length == 0 || encrypt_bytes.length < 16) {
+        if (  encrypt_bytes.length == 0 ) {
             
             return nil;
             
@@ -72,10 +163,18 @@ class SSEncrypt {
         
         
         //Empty IV: initialization vector
-        //let ivt:NSData =  encrypt_bytes.subdataWithRange(NSMakeRange(0,16))
-        let left:NSData = encrypt_bytes.subdataWithRange(NSMakeRange(16,encrypt_bytes.length-16));
         
+        //self.iv = ivt
+        var cipher:NSData?
+        if recv_ctx == nil {
+            let iv  =  encrypt_bytes.subdataWithRange(NSMakeRange(0,16))
+            recvCTX(iv)
+            cipher = encrypt_bytes.subdataWithRange(NSMakeRange(16,encrypt_bytes.length-16));
+        }else {
+            cipher = encrypt_bytes
+        }
         
+        if let left = cipher {
             // Alloc Data Out
             let cipherDataDecrypt:NSMutableData = NSMutableData.init(length: left.length)!;
             
@@ -83,7 +182,7 @@ class SSEncrypt {
             var  outLengthDecrypt:NSInteger = 0
             
             //Update Cryptor
-            let updateDecrypt:CCCryptorStatus = CCCryptorUpdate(receive_ctx!,
+            let updateDecrypt:CCCryptorStatus = CCCryptorUpdate(recv_ctx!.ctx,
                                                                 left.bytes, //const void *dataIn,
                 left.length,  //size_t dataInLength,
                 cipherDataDecrypt.mutableBytes, //void *dataOut,
@@ -99,13 +198,15 @@ class SSEncrypt {
                 //NSString* cipherFinalDecrypt = [[NSString alloc] initWithData:cipherDataDecrypt encoding:NSUTF8StringEncoding];
                 
                 //Final Cryptor
-                let final:CCCryptorStatus = CCCryptorFinal(receive_ctx!, //CCCryptorRef cryptorRef,
+                let final:CCCryptorStatus = CCCryptorFinal(recv_ctx!.ctx, //CCCryptorRef cryptorRef,
                     cipherDataDecrypt.mutableBytes, //void *dataOut,
                     cipherDataDecrypt.length, // size_t dataOutAvailable,
                     &outLengthDecrypt); // size_t *dataOutMoved)
                 
-                if (final == CCCryptorStatus( kCCSuccess))
+                if (final != CCCryptorStatus( kCCSuccess))
                 {
+                    //logStream.write("decrypt CCCryptorFinal failure")
+                    fatalError()
                     //Release Cryptor
                     //CCCryptorStatus release =
                     //CCCryptorRelease(cryptor); //CCCryptorRef cryptorRef
@@ -113,8 +214,14 @@ class SSEncrypt {
                 
                 return cipherDataDecrypt ;//cipherFinalDecrypt;
             }else {
-                print("decrypt CCCryptorUpdate failure \(updateDecrypt) ")
+                
+                //logStream.write("decrypt CCCryptorUpdate failure")
             }
+        }else {
+            //logStream.write("decrypt no Data")
+        }
+        
+        
         
         return nil
     }
@@ -140,46 +247,42 @@ class SSEncrypt {
         
         
         
-            //alloc number of bytes written to data Out
-            var  outLength:NSInteger = 0 ;
-            // Alloc Data Out
-            let cipherData:NSMutableData = NSMutableData.init(length: encrypt_bytes.length)!;
-            //Update Cryptor
-            let  update:CCCryptorStatus = CCCryptorUpdate(send_ctx!,
-                                                          encrypt_bytes.bytes,
-                                                          encrypt_bytes.length,
-                                                          cipherData.mutableBytes,
-                                                          cipherData.length,
-                                                          &outLength);
-            if (update == CCCryptorStatus(kCCSuccess))
+        //alloc number of bytes written to data Out
+        var  outLength:NSInteger = 0 ;
+        // Alloc Data Out
+        let cipherData:NSMutableData = NSMutableData.init(length: encrypt_bytes.length)!;
+        //Update Cryptor
+        let  update:CCCryptorStatus = CCCryptorUpdate(send_ctx!.ctx,
+                                                      encrypt_bytes.bytes,
+                                                      encrypt_bytes.length,
+                                                      cipherData.mutableBytes,
+                                                      cipherData.length,
+                                                      &outLength);
+        if (update == CCCryptorStatus(kCCSuccess))
+        {
+            //Cut Data Out with nedded length
+            cipherData.length = outLength;
+            
+            //Final Cryptor
+            let final:CCCryptorStatus = CCCryptorFinal(send_ctx!.ctx, //CCCryptorRef cryptorRef,
+                cipherData.mutableBytes, //void *dataOut,
+                cipherData.length, // size_t dataOutAvailable,
+                &outLength); // size_t *dataOutMoved)
+            
+            if (final == CCCryptorStatus(kCCSuccess))
             {
-                //Cut Data Out with nedded length
-                cipherData.length = outLength;
                 
-                //Final Cryptor
-                let final:CCCryptorStatus = CCCryptorFinal(send_ctx!, //CCCryptorRef cryptorRef,
-                    cipherData.mutableBytes, //void *dataOut,
-                    cipherData.length, // size_t dataOutAvailable,
-                    &outLength); // size_t *dataOutMoved)
-                
-                if (final == CCCryptorStatus(kCCSuccess))
-                {
-                    
-                    //CCCryptorRelease(cryptor )
-                }
-                let d:NSMutableData = NSMutableData()
-                d.appendData(iv!);
-                
-                d.appendData(cipherData);
-                return d;
-                
+                //CCCryptorRelease(cryptor )
             }
+            let d:NSMutableData = NSMutableData()
+            d.appendData(send_ctx!.IV);
             
+            d.appendData(cipherData);
+            return d;
             
-            
-        
+        }
         
         return nil
     }
-
+    
 }

@@ -16,7 +16,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func test(){
         let key:String = "asecret16bytekey"
-        let engine = SSEncrypt.init(password: key, method: "test")
+        let engine = SSEncrypt.init(password: key, method: "aes-256-cfb")
         
         let msg:NSData = "BSD".dataUsingEncoding(NSUTF8StringEncoding)!
         print(msg)
@@ -24,7 +24,9 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         if let r = engine.encrypt(msg){
             print(r)
             if let r2 = engine.decrypt(r){
-                print(r2)
+                if r2.isEqualToData(msg){
+                    print("PASS")
+                }
             }
         }
         
