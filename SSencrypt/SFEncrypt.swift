@@ -25,28 +25,10 @@ let  config_ciphers = [
     "chacha20":false,
     "chacha20-ietf":false
 ]
-extension NSData {
-    var md5: NSData! {
-        //let str = self.cStringUsingEncoding(NSUTF8StringEncoding)
-        //let strLen = CC_LONG(self.lengthOfBytesUsingEncoding(NSUTF8StringEncoding))
-        let digestLen = Int(CC_MD5_DIGEST_LENGTH)
-        let result = UnsafeMutablePointer<CUnsignedChar>.alloc(digestLen)
-        
-        CC_MD5(self.bytes, CC_LONG(self.length), result)
-        
-        //let hash = NSMutableString()
-        //for i in 0..<digestLen {
-        //    hash.appendFormat("%02x", result[i])
-        //}
-        let x = NSData.init(bytes: result, length: digestLen)
-        result.dealloc(digestLen)
-        
-        return x
-    }
-}
+
 class enc_ctx {
     var method:String = "aes-256-cfb"
-    
+    var count:Int = 0
     var IV:NSData
     var ctx:CCCryptorRef
     static func create_enc(op:CCOperation,key:NSData,iv:NSData) -> CCCryptorRef {
@@ -84,8 +66,10 @@ class enc_ctx {
     }
 }
 class SSEncrypt {
+    var recv_buffer:NSData?
     var send_ctx:enc_ctx?
     var recv_ctx:enc_ctx?
+    let block_size = 16
     static var ramdonKey:NSData?
     static var iv_cache:[NSData] = []
     static func have_iv(i:NSData) ->Bool {
@@ -115,10 +99,7 @@ class SSEncrypt {
     }
     func recvCTX(iv:NSData){
         if SSEncrypt.have_iv(iv){
-            //logStream.write("cryto iv dup error")
-            recv_ctx = enc_ctx.init(key: SSEncrypt.ramdonKey!, iv: iv, encrypt: false)
-            SSEncrypt.iv_cache.append(iv)
-            //fatalError()
+            logStream.write("cryto iv dup error")
         }else {
             recv_ctx = enc_ctx.init(key: SSEncrypt.ramdonKey!, iv: iv, encrypt: false)
             SSEncrypt.iv_cache.append(iv)
@@ -152,20 +133,12 @@ class SSEncrypt {
         
         return m
     }
-    
-    func decrypt(encrypt_bytes:NSData) ->NSData?{
-        if (  encrypt_bytes.length == 0 ) {
-            
-            return nil;
-            
-        }
-        
-        
+    func genData(encrypt_bytes:NSData) ->NSData?{
         
         //Empty IV: initialization vector
         
         //self.iv = ivt
-        var cipher:NSData?
+        let cipher:NSData?
         if recv_ctx == nil {
             let iv  =  encrypt_bytes.subdataWithRange(NSMakeRange(0,16))
             recvCTX(iv)
@@ -173,8 +146,37 @@ class SSEncrypt {
         }else {
             cipher = encrypt_bytes
         }
+        //        if let left = cipher {
+        //            let tempbuffer = NSMutableData.init()
+        //            if let last = recv_buffer {
+        //                tempbuffer.appendData(last)
+        //                tempbuffer.appendData(left)
+        //                recv_buffer = NSData.init()
+        //            }else {
+        //                tempbuffer.setData(left)
+        //            }
+        //            let block_size = 128 / 8
+        //            let left_size =  tempbuffer.length %  block_size
+        //            if left_size != 0{
+        //                recv_buffer = tempbuffer.subdataWithRange(NSMakeRange(tempbuffer.length - left_size, left_size))
+        //                tempbuffer.length = tempbuffer.length - left_size
+        //
+        //            }
+        //            AxLogger.log("recv cipher length:\(tempbuffer.length % 16)")
+        //            return tempbuffer
+        //        }
+        return cipher
         
-        if let left = cipher {
+    }
+    func decrypt(encrypt_bytes:NSData) ->NSData?{
+        if (  encrypt_bytes.length == 0 ) {
+            
+            return nil;
+            
+        }
+        
+        if let left = genData(encrypt_bytes) {
+            
             // Alloc Data Out
             let cipherDataDecrypt:NSMutableData = NSMutableData.init(length: left.length)!;
             
@@ -205,8 +207,7 @@ class SSEncrypt {
                 
                 if (final != CCCryptorStatus( kCCSuccess))
                 {
-                    //logStream.write("decrypt CCCryptorFinal failure")
-                    fatalError()
+                    logStream.write("decrypt CCCryptorFinal failure")
                     //Release Cryptor
                     //CCCryptorStatus release =
                     //CCCryptorRelease(cryptor); //CCCryptorRef cryptorRef
@@ -215,10 +216,10 @@ class SSEncrypt {
                 return cipherDataDecrypt ;//cipherFinalDecrypt;
             }else {
                 
-                //logStream.write("decrypt CCCryptorUpdate failure")
+                logStream.write("decrypt CCCryptorUpdate failure")
             }
         }else {
-            //logStream.write("decrypt no Data")
+            logStream.write("decrypt no Data")
         }
         
         
@@ -239,6 +240,16 @@ class SSEncrypt {
         // Turn bytes into data and pass data bytes into int
         return NSData(bytes: randomBytes, length: bytesCount) //getBytes(&randomNum, length: bytesCount)
     }
+    func padding(d:NSData) ->NSData{
+        let l = d.length % block_size
+        if l != 0 {
+            let x = NSMutableData.init(data: d)
+            x.length += l
+            return x
+        }else {
+            return d
+        }
+    }
     func encrypt(encrypt_bytes:NSData) ->NSData?{
         
         //let iv:NSData = NSData();
@@ -246,7 +257,7 @@ class SSEncrypt {
         
         
         
-        
+        //let encrypt_bytes = padding(encrypt_bytes_org)
         //alloc number of bytes written to data Out
         var  outLength:NSInteger = 0 ;
         // Alloc Data Out
@@ -274,11 +285,19 @@ class SSEncrypt {
                 
                 //CCCryptorRelease(cryptor )
             }
-            let d:NSMutableData = NSMutableData()
-            d.appendData(send_ctx!.IV);
+            if send_ctx!.count == 0 {
+                send_ctx!.count += 1
+                let d:NSMutableData = NSMutableData()
+                d.appendData(send_ctx!.IV);
+                
+                d.appendData(cipherData)
+                return d
+            }else {
+                return cipherData
+            }
             
-            d.appendData(cipherData);
-            return d;
+            //AxLogger.log("cipher length:\(d.length % 16)")
+            
             
         }
         
