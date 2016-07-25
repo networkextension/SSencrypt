@@ -97,8 +97,8 @@ public enum  CryptoMethod:Int,CustomStringConvertible{
 //        public var kCCModeXTS: Int { get } 8
 //        public var kCCModeRC4: Int { get } 9
 //        public var kCCModeCFB8: Int { get } 10
-        case RC4:         return        9
-        case RC4_MD5:      return       9
+        case RC4:         return        9//4
+        case RC4_MD5:      return       9//4
         case AES_128_CFB:   return      3
         case AES_192_CFB:    return     3
         case AES_256_CFB:     return    3
@@ -195,15 +195,18 @@ class enc_ctx {
     var IV:NSData
     var ctx:CCCryptorRef
     func test (){
-        
+        let abcd = "aaaa"
+        if abcd.hasPrefix("aa"){
+            
+        }
     }
     static func setupSodium() {
-        if !enc_ctx.sodiumInited {
-            if sodium_init() == -1 {
-                print("sodium_init failure")
-                AxLogger.log("sodium_init failure",level: .Error)
-            }
-        }
+//        if !enc_ctx.sodiumInited {
+//            if sodium_init() == -1 {
+//                print("sodium_init failure")
+//                AxLogger.log("sodium_init failure",level: .Error)
+//            }
+//        }
     }
     static func create_enc(op:CCOperation,key:NSData,iv:NSData,m:CryptoMethod) -> CCCryptorRef {
         
@@ -211,6 +214,9 @@ class enc_ctx {
         var  cryptor :CCCryptorRef = nil
         
         let key_size = m.key_size
+        print("key_size:\(m.key_size) iv_size:\(m.iv_size)")
+        print("iv :\(iv)")
+        print("key: \(key)")
         let  createDecrypt:CCCryptorStatus = CCCryptorCreateWithMode(op, // operation
             m.ccmode, // mode CTR kCCModeRC4= 9
             algorithm,//CCAlgorithm(0),//kCCAlgorithmAES, // Algorithm
@@ -236,24 +242,39 @@ class enc_ctx {
         if method.iv_size != iv.length {
             fatalError()
         }
-        IV = iv
-        m = method //
-        let c = findCCAlgorithm(Int32(m.rawValue)) //m.supported_ciphers()
+        let c = findCCAlgorithm(Int32(method.rawValue)) //m.supported_ciphers()
+        var true_key:NSData
+        if method == .RC4_MD5 {
+            let key_iv = NSMutableData.init(data: key)
+            key_iv.length = 16
+            key_iv.appendData(iv)
+            
+            
+            true_key = key_iv.md5x
+            //iv_len   = 0;
+        }else {
+            true_key = key
+           
+            
+        }
+        
+        m = method
         if  c != UInt32.max {
             if encrypt {
-                ctx = enc_ctx.create_enc(CCOperation(0), key: key,iv: iv,m:m)
+                ctx = enc_ctx.create_enc(CCOperation(0), key: true_key,iv: iv,m:method)
             }else {
-                ctx = enc_ctx.create_enc(CCOperation(1), key: key,iv: iv,m:m)
+                ctx = enc_ctx.create_enc(CCOperation(1), key: true_key,iv: iv,m:method)
             }
+            IV = iv
         }else {
             ctx = nil
-            if m == .SALSA20 || m == .CHACHA20 || m == .CHACHA20IETF {
+            if method == .SALSA20 || method == .CHACHA20 || method == .CHACHA20IETF {
                 let sIV = NSMutableData.init(data: iv)
                 sIV.length = 16
                 IV = sIV
                 enc_ctx.setupSodium()
             }else {
-                
+                IV = iv
             }
            
         }
@@ -276,13 +297,15 @@ class SSEncrypt {
     //let block_size = 16
     var ramdonKey:NSData?
     static var iv_cache:[NSData] = []
-    static func have_iv(i:NSData) ->Bool {
-        for x in SSEncrypt.iv_cache {
-            if x.isEqualToData(i){
-                return true
+    static func have_iv(i:NSData,m:CryptoMethod) ->Bool {
+        let x = CryptoMethod.RC4_MD5
+        if m.rawValue >= x.rawValue {
+            for x in SSEncrypt.iv_cache {
+                if x.isEqualToData(i){
+                    return true
+                }
             }
         }
-        
         return false
         
     }
@@ -292,14 +315,14 @@ class SSEncrypt {
     init(password:String,method:String) {
         
         m = CryptoMethod.init(cipher: method)
-
+        print("method:\(m.description)")
         ramdonKey  = SSEncrypt.evpBytesToKey(password,keyLen: m.key_size)
         if m.rawValue >= CryptoMethod.SALSA20.rawValue {
             let k = NSMutableData.init(data: ramdonKey!)
             k.length = 64
             ramdonKey  = k
         }
-        print("\(m.description) key_size\(m.key_size) \(ramdonKey!.length)")
+        print("\(m.description) key_size:\(m.key_size) iv_size:\(m.iv_size) ramdonkey len\(ramdonKey!.length)")
         let iv =  SSEncrypt.getSecureRandom(m.iv_size)
         AxLogger.log("\(m.key_size) \(m.iv_size) \(method)",level: .Debug)
         //        let x = password.dataUsingEncoding(NSUTF8StringEncoding)!
@@ -311,7 +334,7 @@ class SSEncrypt {
         
     }
     func recvCTX(iv:NSData){
-        if SSEncrypt.have_iv(iv){
+        if SSEncrypt.have_iv(iv,m:m){
             print("cryto iv dup error")
             AxLogger.log("cryto iv dup error")
             recv_ctx = enc_ctx.init(key: ramdonKey!, iv: iv, encrypt: false,method:m)
@@ -456,28 +479,6 @@ class SSEncrypt {
                 let result = cipher!.subdataWithRange(NSMakeRange(Int(padding), left.length + Int(padding) ))
                 
                 return result
-                
-                
-                //todo add
-//                int padding = ctx->counter % SODIUM_BLOCK_SIZE;
-//                brealloc(plain, (plain->len + padding) * 2, capacity);
-//                
-//                if (padding) {
-//                    brealloc(cipher, cipher->len + padding, capacity);
-//                    memmove(cipher->array + iv_len + padding, cipher->array + iv_len,
-//                        cipher->len - iv_len);
-//                    sodium_memzero(cipher->array + iv_len, padding);
-//                }
-//                crypto_stream_xor_ic((uint8_t *)plain->array,
-//                    (const uint8_t *)(cipher->array + iv_len),
-//                    (uint64_t)(cipher->len - iv_len + padding),
-//                    (const uint8_t *)ctx->evp.iv,
-//                    ctx->counter / SODIUM_BLOCK_SIZE, enc_key,
-//                    enc_method);
-//                ctx->counter += cipher->len - iv_len;
-//                if (padding) {
-//                    memmove(plain->array, plain->array + padding, plain->len);
-//                }
 
             }else {
                 let cipherDataDecrypt:NSMutableData = NSMutableData.init(length: left.length)!;
@@ -517,7 +518,7 @@ class SSEncrypt {
                     
                     return cipherDataDecrypt ;//cipherFinalDecrypt;
                 }else {
-                    print("111 decrypt no Data")
+                    print("111 decrypt no Data decrypt CCCryptorUpdate failure")
                     AxLogger.log("decrypt CCCryptorUpdate failure")
                 }
 
@@ -648,30 +649,68 @@ class SSEncrypt {
                 
                 if (final == CCCryptorStatus(0))
                 {
+                    if ctx.counter == 0 {
+                        ctx.counter += 1
+                        let d:NSMutableData = NSMutableData()
+                        d.appendData(ctx.IV);
+                        
+                        d.appendData(cipherData)
+                        return d
+                    }else {
+                        return cipherData
+                    }
+
                     
-                    //CCCryptorRelease(cryptor )
-                }
-                if ctx.counter == 0 {
-                    ctx.counter += 1
-                    let d:NSMutableData = NSMutableData()
-                    d.appendData(ctx.IV);
-                    
-                    d.appendData(cipherData)
-                    return d
                 }else {
-                    return cipherData
+                    print("CCCryptorFinal error \(final)")
                 }
                 
                 //AxLogger.log("cipher length:\(d.length % 16)")
                 
                 
+            }else {
+                print("CCCryptorUpdate error \(update)")
             }
 
         }
         
         return nil
     }
-    
+    static func encryptErrorReason(r:Int32) {
+        
+//            kCCSuccess          = 0,
+//            kCCParamError       = -4300,
+//            kCCBufferTooSmall   = -4301,
+//            kCCMemoryFailure    = -4302,
+//            kCCAlignmentError   = -4303,
+//            kCCDecodeError      = -4304,
+//            kCCUnimplemented    = -4305,
+//            kCCOverflow         = -4306,
+//            kCCRNGFailure       = -4307,
+        
+        var message:String = "undefine error"
+        switch  r{
+        case -4300:
+            message = "kCCParamError"
+        case -4301:
+            message = "kCCBufferTooSmall"
+        case -4302:
+            message = "kCCMemoryFailure"
+        case -4303:
+            message = "kCCAlignmentError"
+        case -4304:
+            message = "kCCDecodeError"
+        case -4305:
+            message = "kCCUnimplemented"
+        case -4306:
+            message = "kCCOverflow"
+        case -4307:
+            message = "kCCRNGFailure"
+        default:
+            break
+        }
+        print("\(message)")
+    }
     func ss_onetimeauth(buffer:NSData) ->NSData {
         
         let keyData = NSMutableData.init(data: send_ctx!.IV)
