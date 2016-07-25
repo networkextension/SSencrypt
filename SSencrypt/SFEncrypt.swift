@@ -201,12 +201,12 @@ class enc_ctx {
         }
     }
     static func setupSodium() {
-//        if !enc_ctx.sodiumInited {
-//            if sodium_init() == -1 {
-//                print("sodium_init failure")
-//                AxLogger.log("sodium_init failure",level: .Error)
-//            }
-//        }
+        if !enc_ctx.sodiumInited {
+            if sodium_init() == -1 {
+                print("sodium_init failure")
+                AxLogger.log("sodium_init failure",level: .Error)
+            }
+        }
     }
     static func create_enc(op:CCOperation,key:NSData,iv:NSData,m:CryptoMethod) -> CCCryptorRef {
         
@@ -269,9 +269,9 @@ class enc_ctx {
         }else {
             ctx = nil
             if method == .SALSA20 || method == .CHACHA20 || method == .CHACHA20IETF {
-                let sIV = NSMutableData.init(data: iv)
-                sIV.length = 16
-                IV = sIV
+                //let sIV = NSMutableData.init(data: iv)
+                //sIV.length = 16
+                IV = iv
                 enc_ctx.setupSodium()
             }else {
                 IV = iv
@@ -389,6 +389,7 @@ class SSEncrypt {
             }
         }
         
+        m.length = keyLen
         
         return m
     }
@@ -414,8 +415,8 @@ class SSEncrypt {
             ret =  crypto_stream_chacha20_xor_ic(c, m, mlen, n, ic, k);
             //return crypto_stream_xor_icc(c, m, mlen, n, ic, k,xx)
         case .CHACHA20IETF:
-            //return crypto_stream_chacha20_ietf_xor_ic(c, m, mlen, n, UInt32(ic), k);
-            ret =  0
+            ret =  crypto_stream_chacha20_ietf_xor_ic(c, m, mlen, n, UInt32(ic), k);
+            
         default:
             break
         }
@@ -504,7 +505,6 @@ class SSEncrypt {
                 
                 //alloc number of bytes written to data Out
                 var  outLengthDecrypt:NSInteger = 0
-                
                 //Update Cryptor
                 let updateDecrypt:CCCryptorStatus = CCCryptorUpdate(ctx.ctx,
                                                                     left.bytes, //const void *dataIn,
