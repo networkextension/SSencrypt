@@ -214,9 +214,9 @@ class enc_ctx {
         var  cryptor :CCCryptorRef = nil
         
         let key_size = m.key_size
-        print("key_size:\(m.key_size) iv_size:\(m.iv_size)")
-        print("iv :\(iv)")
-        print("key: \(key)")
+//        print("key_size:\(m.key_size) iv_size:\(m.iv_size)")
+//        print("iv :\(iv)")
+//        print("key: \(key)")
         let  createDecrypt:CCCryptorStatus = CCCryptorCreateWithMode(op, // operation
             m.ccmode, // mode CTR kCCModeRC4= 9
             algorithm,//CCAlgorithm(0),//kCCAlgorithmAES, // Algorithm
@@ -292,6 +292,7 @@ class enc_ctx {
 class SSEncrypt {
    
     var m:CryptoMethod
+    var testenable:Bool = false
     var send_ctx:enc_ctx?
     var recv_ctx:enc_ctx?
     //let block_size = 16
@@ -312,17 +313,34 @@ class SSEncrypt {
     deinit {
         
     }
+    func dataWithHexString(hex: String) -> NSData {
+        var hex = hex
+        let data = NSMutableData()
+        while(hex.characters.count > 0) {
+            let c: String = hex.substringToIndex(hex.startIndex.advancedBy(2))
+            hex = hex.substringFromIndex(hex.startIndex.advancedBy(2))
+            var ch: UInt32 = 0
+            NSScanner(string: c).scanHexInt(&ch)
+            data.appendBytes(&ch, length: 1)
+        }
+        return data
+    }
     init(password:String,method:String) {
         
         m = CryptoMethod.init(cipher: method)
-        print("method:\(m.description)")
+        //print("method:\(m.description)")
         ramdonKey  = SSEncrypt.evpBytesToKey(password,keyLen: m.key_size)
-        if m.rawValue >= CryptoMethod.SALSA20.rawValue {
-            let k = NSMutableData.init(data: ramdonKey!)
-            k.length = 64
-            ramdonKey  = k
-        }
-        print("\(m.description) key_size:\(m.key_size) iv_size:\(m.iv_size) ramdonkey len\(ramdonKey!.length)")
+//        if m.rawValue >= CryptoMethod.SALSA20.rawValue {
+//            let k = NSMutableData.init(data: ramdonKey!)
+//            k.length = 64
+//            ramdonKey  = k
+//        }
+        //print("\(m.description) key_size:\(m.key_size) iv_size:\(m.iv_size) ramdonkey len\(ramdonKey!.length)")
+        //let a = "d5921d56e0db2bd5"//0000000000000000"
+        
+        //let b = dataWithHexString(a)
+        //let c = NSMutableData.init(data: b)
+        //c.length = 16
         let iv =  SSEncrypt.getSecureRandom(m.iv_size)
         AxLogger.log("\(m.key_size) \(m.iv_size) \(method)",level: .Debug)
         //        let x = password.dataUsingEncoding(NSUTF8StringEncoding)!
@@ -334,11 +352,10 @@ class SSEncrypt {
         
     }
     func recvCTX(iv:NSData){
-        if SSEncrypt.have_iv(iv,m:m){
-            print("cryto iv dup error")
+        if SSEncrypt.have_iv(iv,m:m)  && !testenable{
+            //print("cryto iv dup error")
             AxLogger.log("cryto iv dup error")
-            recv_ctx = enc_ctx.init(key: ramdonKey!, iv: iv, encrypt: false,method:m)
-            SSEncrypt.iv_cache.append(iv)
+           
         }else {
             recv_ctx = enc_ctx.init(key: ramdonKey!, iv: iv, encrypt: false,method:m)
             SSEncrypt.iv_cache.append(iv)
@@ -377,25 +394,33 @@ class SSEncrypt {
     }
     func crypto_stream_xor_ic(cd:NSMutableData,md:NSData,mlen: UInt64, nd:NSData, ic:UInt64, kd:NSData)  ->Int32{
         
-        let c:UnsafeMutablePointer<UInt8> = UnsafeMutablePointer<UInt8>.init(cd.mutableBytes)
+        let c:UnsafeMutablePointer<CUnsignedChar> = UnsafeMutablePointer<CUnsignedChar>.init(cd.mutableBytes)
         let m:UnsafePointer<UInt8> = UnsafePointer<UInt8>.init(md.bytes)
-        let n:UnsafePointer<UInt8> = UnsafePointer<UInt8>.init(md.bytes)
+        let n:UnsafePointer<UInt8> = UnsafePointer<UInt8>.init(nd.bytes)
         let k:UnsafePointer<UInt8> = UnsafePointer<UInt8>.init(kd.bytes)
-        let xx = Int32(send_ctx!.m.rawValue)
+        var ret:Int32 = 0
+       
+        //let xx = Int32(send_ctx!.m.rawValue)
+//        int crypto_stream_chacha20_xor_ic(unsigned char *c, const unsigned char *m,
+//                                          unsigned long long mlen,
+//                                          const unsigned char *n, uint64_t ic,
+//                                          const unsigned char *k);
+
         switch send_ctx!.m{
         case .SALSA20:
-            return crypto_stream_salsa20_xor_ic(c, m, mlen, n, ic, k);
+             ret = crypto_stream_salsa20_xor_ic(c, m, mlen, n, ic, k);
             //return crypto_stream_xor_icc(c, m, mlen, n, ic, k,xx)
         case .CHACHA20:
-            return crypto_stream_chacha20_xor_ic(c, m, mlen, n, ic, k);
+            ret =  crypto_stream_chacha20_xor_ic(c, m, mlen, n, ic, k);
             //return crypto_stream_xor_icc(c, m, mlen, n, ic, k,xx)
         case .CHACHA20IETF:
             //return crypto_stream_chacha20_ietf_xor_ic(c, m, mlen, n, UInt32(ic), k);
-            return 0 
+            ret =  0
         default:
             break
         }
-        return 0
+        //print("sodium ret \(ret)")
+        return ret
     }
     func genData(encrypt_bytes:NSData) ->NSData?{
         
@@ -408,10 +433,10 @@ class SSEncrypt {
             let iv  =  encrypt_bytes.subdataWithRange(NSMakeRange(0,iv_len))
             recvCTX(iv) //
             cipher = encrypt_bytes.subdataWithRange(NSMakeRange(iv_len,encrypt_bytes.length - iv_len ));
-            print("iv \(iv) \(iv_len)")
-            print("ramdonKey \(ramdonKey!)")
-            print("data \(cipher!) \(cipher?.length) \(encrypt_bytes.length - iv_len)")
-            print("encrypt_bytes 000 \(encrypt_bytes)")
+//            print("iv \(iv) \(iv_len)")
+//            print("ramdonKey \(ramdonKey!)")
+//            print("data \(cipher!) \(cipher?.length) \(encrypt_bytes.length - iv_len)")
+//            print("encrypt_bytes 000 \(encrypt_bytes)")
         }else {
             cipher = encrypt_bytes
         }
@@ -425,7 +450,7 @@ class SSEncrypt {
             return nil;
             
         }
-        if recv_ctx == nil && encrypt_bytes.length < 16 {
+        if recv_ctx == nil && encrypt_bytes.length < send_ctx!.m.iv_size {
             AxLogger.log("socket read less iv_len",level: .Error)
         }
         
@@ -433,14 +458,14 @@ class SSEncrypt {
             
             // Alloc Data Out
             guard let  ctx =  recv_ctx else {
-                print("ctx error")
+                //print("ctx error")
                 AxLogger.log("socket read less iv_len",level: .Error)
                 return nil }
             
             if ctx.m.rawValue >= CryptoMethod.SALSA20.rawValue {
-                print("iv \(ctx.IV)")
-                print("ramdonKey \(ramdonKey!)")
-                print("data \(left)")
+//                print("iv \(ctx.IV)")
+//                print("ramdonKey \(ramdonKey!)")
+//                print("data \(left)")
                 let padding = ctx.counter % SODIUM_BLOCK_SIZE;
                 let cipher = NSMutableData.init(length:  left.length + Int(padding))
                 
@@ -470,14 +495,8 @@ class SSEncrypt {
                                      ic: ctx.counter / SODIUM_BLOCK_SIZE,
                                      kd: ramdonKey!)
                
-                
-                print("padding \(padding) cipher \(cipher!)")
                 ctx.counter += UInt64(left.length)
-                
-                 
-                
-                let result = cipher!.subdataWithRange(NSMakeRange(Int(padding), left.length + Int(padding) ))
-                
+                let result = cipher!.subdataWithRange(NSMakeRange(Int(padding),left.length))
                 return result
 
             }else {
@@ -590,7 +609,9 @@ class SSEncrypt {
             }else {
                  plain = NSMutableData.init(data: encrypt_bytes)
             }
-            debugLog("222 encrypt")
+            let riv = NSMutableData.init(data: ctx.IV)
+            riv.length = 32
+            debugLog("222 encrypt ")
             //let enc_key = NSMutableData.init(data: ramdonKey!)
             //enc_key.length = send_ctx!.m.key_size
 //            let ptr:UnsafeMutablePointer<UInt8> = UnsafeMutablePointer<UInt8>.init((cipher?.mutableBytes)!)
@@ -599,7 +620,7 @@ class SSEncrypt {
             crypto_stream_xor_ic(cipher! ,
                                  md: plain,
                                  mlen: UInt64(plain.length),
-                                 nd: ctx.IV,
+                                 nd: riv,//ctx.IV,
                                  ic: ctx.counter / SODIUM_BLOCK_SIZE,
                                  kd: ramdonKey!)
             var result:NSMutableData
@@ -613,18 +634,20 @@ class SSEncrypt {
             
             ctx.counter += UInt64(encrypt_bytes.length)
             
-            
-            if padding != 0 {
-//                memmove(cipher->array + iv_len,
-//                    cipher->array + iv_len + padding, cipher->len);
-                result.appendData(cipher!.subdataWithRange(NSMakeRange(Int(padding), encrypt_bytes.length
-                    )))
-            }else {
-                result.appendData(cipher!.subdataWithRange(NSMakeRange(0, encrypt_bytes.length
-                    )))
-
-            }
-            debugLog("000 encrypt")
+           // print("cipher \(cipher)")
+//            if padding != 0 {
+////                memmove(cipher->array + iv_len,
+////                    cipher->array + iv_len + padding, cipher->len);
+//                result.appendData(cipher!.subdataWithRange(NSMakeRange(Int(padding), encrypt_bytes.length
+//                    )))
+//            }else {
+//                result.appendData(cipher!.subdataWithRange(NSMakeRange(0, encrypt_bytes.length
+//                    )))
+//
+//            }
+            result.appendData(cipher!.subdataWithRange(NSMakeRange(Int(padding), encrypt_bytes.length
+                )))
+            //debugLog("000 encrypt")
             return result
         }else {
             var  outLength:NSInteger = 0 ;
@@ -716,6 +739,19 @@ class SSEncrypt {
         let keyData = NSMutableData.init(data: send_ctx!.IV)
         //let key_size = send_ctx!.m.key_size
         //let ramdonK2 = ramdonKey?.subdataWithRange(NSMakeRange(0, key_size))
+//        var true_key:NSData
+//        if send_ctx!.m == .RC4_MD5 {
+//            let key_iv = NSMutableData.init(data: ramdonKey!)
+//            key_iv.length = 16
+//            key_iv.appendData(send_ctx!.IV)
+//            
+//            
+//            true_key = key_iv.md5x
+//            //iv_len   = 0;
+//        }else {
+//            true_key = ramdonKey!
+//        }
+
         keyData.appendData(ramdonKey!)
         let hash = buffer.hmacsha1(keyData)
         //let result = NSMutableData.init(data: buffer)
