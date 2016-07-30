@@ -194,6 +194,7 @@ class enc_ctx {
     var counter:UInt64 = 0
     var IV:NSData
     var ctx:CCCryptorRef
+    
     func test (){
         let abcd = "aaaa"
         if abcd.hasPrefix("aa"){
@@ -203,7 +204,7 @@ class enc_ctx {
     static func setupSodium() {
         if !enc_ctx.sodiumInited {
             if sodium_init() == -1 {
-                print("sodium_init failure")
+                //print("sodium_init failure")
                 AxLogger.log("sodium_init failure",level: .Error)
             }
         }
@@ -282,6 +283,9 @@ class enc_ctx {
         
         
     }
+    func setIV(iv:NSData){
+       
+    }
     deinit {
         if ctx != nil {
             CCCryptorRelease(ctx)
@@ -297,6 +301,7 @@ class SSEncrypt {
     var recv_ctx:enc_ctx?
     //let block_size = 16
     var ramdonKey:NSData?
+    var ivBuffer:NSMutableData = NSMutableData.init()
     static var iv_cache:[NSData] = []
     static func have_iv(i:NSData,m:CryptoMethod) ->Bool {
         let x = CryptoMethod.RC4_MD5
@@ -307,6 +312,7 @@ class SSEncrypt {
                 }
             }
         }
+        SSEncrypt.iv_cache.append(i)
         return false
         
     }
@@ -342,23 +348,27 @@ class SSEncrypt {
         //let c = NSMutableData.init(data: b)
         //c.length = 16
         let iv =  SSEncrypt.getSecureRandom(m.iv_size)
-        AxLogger.log("\(m.key_size) \(m.iv_size) \(method)",level: .Debug)
+        //AxLogger.log("\(m.key_size) \(m.iv_size) \(method)",level: .Debug)
         //        let x = password.dataUsingEncoding(NSUTF8StringEncoding)!
         //        let data = NSMutableData.init(length: 32)
         //memcpy((data?.mutableBytes)!, x.bytes, x.length)
         //receive_ctx = create_enc(CCOperation(kCCDecrypt), key: key)
         send_ctx = enc_ctx.init(key: ramdonKey!, iv: iv, encrypt: true,method:m )
-        SSEncrypt.iv_cache.append(iv)
+        debugLog("cache add iv:\(iv) ")
+       // SSEncrypt.iv_cache.append(iv)
         
     }
     func recvCTX(iv:NSData){
+        debugLog("use iv create ctx \(iv)")
         if SSEncrypt.have_iv(iv,m:m)  && !testenable{
             //print("cryto iv dup error")
+            NSLog("iv_cachae %@",SSEncrypt.iv_cache)
+            NSLog("recv_ctx_iv: %@",iv)
             AxLogger.log("cryto iv dup error")
            
         }else {
             recv_ctx = enc_ctx.init(key: ramdonKey!, iv: iv, encrypt: false,method:m)
-            SSEncrypt.iv_cache.append(iv)
+            
         }
         
     }
@@ -416,7 +426,6 @@ class SSEncrypt {
             //return crypto_stream_xor_icc(c, m, mlen, n, ic, k,xx)
         case .CHACHA20IETF:
             ret =  crypto_stream_chacha20_ietf_xor_ic(c, m, mlen, n, UInt32(ic), k);
-            
         default:
             break
         }
@@ -430,10 +439,22 @@ class SSEncrypt {
         //self.iv = ivt
         let cipher:NSData?
         if recv_ctx == nil {
+            
             let iv_len = send_ctx!.m.iv_size
-            let iv  =  encrypt_bytes.subdataWithRange(NSMakeRange(0,iv_len))
-            recvCTX(iv) //
-            cipher = encrypt_bytes.subdataWithRange(NSMakeRange(iv_len,encrypt_bytes.length - iv_len ));
+            
+            if encrypt_bytes.length + ivBuffer.length < iv_len {
+                ivBuffer.appendData(encrypt_bytes)
+                AxLogger.log("recv iv not finished,waiting recv iv")
+                return nil
+            }else {
+                let iv_need_len = iv_len - ivBuffer.length
+                
+                
+                ivBuffer.appendData(encrypt_bytes.subdataWithRange(NSMakeRange(0,iv_need_len)))
+                recvCTX(ivBuffer) //
+                //ivBuffer
+                cipher = encrypt_bytes.subdataWithRange(NSMakeRange(iv_need_len,encrypt_bytes.length - iv_need_len ));
+            }
 //            print("iv \(iv) \(iv_len)")
 //            print("ramdonKey \(ramdonKey!)")
 //            print("data \(cipher!) \(cipher?.length) \(encrypt_bytes.length - iv_len)")
@@ -452,6 +473,7 @@ class SSEncrypt {
             
         }
         if recv_ctx == nil && encrypt_bytes.length < send_ctx!.m.iv_size {
+            
             AxLogger.log("socket read less iv_len",level: .Error)
         }
         
@@ -460,7 +482,7 @@ class SSEncrypt {
             // Alloc Data Out
             guard let  ctx =  recv_ctx else {
                 //print("ctx error")
-                AxLogger.log("socket read less iv_len",level: .Error)
+                AxLogger.log("recv_ctx not init ",level: .Error)
                 return nil }
             
             if ctx.m.rawValue >= CryptoMethod.SALSA20.rawValue {
@@ -505,6 +527,7 @@ class SSEncrypt {
                 
                 //alloc number of bytes written to data Out
                 var  outLengthDecrypt:NSInteger = 0
+                
                 //Update Cryptor
                 let updateDecrypt:CCCryptorStatus = CCCryptorUpdate(ctx.ctx,
                                                                     left.bytes, //const void *dataIn,
@@ -537,14 +560,13 @@ class SSEncrypt {
                     
                     return cipherDataDecrypt ;//cipherFinalDecrypt;
                 }else {
-                    print("111 decrypt no Data decrypt CCCryptorUpdate failure")
                     AxLogger.log("decrypt CCCryptorUpdate failure")
                 }
 
             }
             
         }else {
-            print("000 decrypt no Data")
+            
             AxLogger.log("decrypt no Data")
         }
         
@@ -685,14 +707,14 @@ class SSEncrypt {
 
                     
                 }else {
-                    print("CCCryptorFinal error \(final)")
+                    AxLogger.log("CCCryptorFinal error \(final)")
                 }
                 
                 //AxLogger.log("cipher length:\(d.length % 16)")
                 
                 
             }else {
-                print("CCCryptorUpdate error \(update)")
+                AxLogger.log("CCCryptorUpdate error \(update)")
             }
 
         }
