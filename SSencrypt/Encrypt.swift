@@ -29,6 +29,18 @@ import Foundation
 import Security
 
 
+//
+//  Encrypt.swift
+//  Surf
+//
+//  Created by yarshure on 16/5/12.
+//  Copyright © 2016年 yarshure. All rights reserved.
+//
+// gfw.press support
+import Foundation
+import Security
+
+
 //let kChosenCipherBlockSize = kCCBlockSizeAES128
 //let kChosenCipherKeySize = kCCKeySizeAES128
 //import CryptoSwift
@@ -82,7 +94,9 @@ class Encrypt: SSEncrypt{
 //    private KeyGenerator keyGenerator = null;
     
     //var key:NSData? //加密的key
-    var iv:NSData?
+    var leftdataLength:Int = 0
+    var lettnoiseLength:Int = 0
+    var recv_iv:NSData?
     
     init (passwd:String) {
         //m = CryptoMethod.init(cipher: "aes-256-cfb")
@@ -119,7 +133,7 @@ class Encrypt: SSEncrypt{
      */
     
     func decrypt(key:NSData , encrypt_bytes:NSData) ->NSData?{
-        if (key.length == 0 || encrypt_bytes.length == 0 || encrypt_bytes.length < Encrypt.IV_SIZE) {
+        if (key.length == 0 || encrypt_bytes.length == 0 ) {
             
             return nil;
             
@@ -140,11 +154,191 @@ class Encrypt: SSEncrypt{
         // Init cryptor
         
         //Empty IV: initialization vector
-        let iv:NSData =  encrypt_bytes.subdataWithRange(NSMakeRange(0,m.iv_size))
-        let left:NSData = encrypt_bytes.subdataWithRange(NSMakeRange(m.iv_size,encrypt_bytes.length-16));
-        return decrypt(ramdonKey!, encrypt_bytes:left , iv: iv)
         
-        //return nil
+        
+        var used_Length:Int = 0
+        if ivBuffer.length  == 0 {
+            //有没用没解完的，有先解
+            let result = NSMutableData.init()
+            if leftdataLength > 0  {
+                
+                
+                if recv_iv == nil {
+                    AxLogger.log("recv_iv check fail",level: .Debug)
+                }
+                
+                var length:Int = 0
+                var touse:NSData
+                if leftdataLength >= encrypt_bytes.length {
+                    length = encrypt_bytes.length
+                }else {
+                    length = leftdataLength
+                }
+                
+                touse = encrypt_bytes.subdataWithRange(NSMakeRange(0,length))
+                
+                let r0 = decrypt(ramdonKey!, encrypt_bytes:touse , iv: recv_iv!)
+                
+                
+                leftdataLength -= length
+                used_Length += length
+                
+                if leftdataLength == 0 {
+                    AxLogger.log("packet decrypt fin clear iv",level: .Debug)
+                    recv_iv = nil
+                    //recv_ctx?.ctx = nil // reset ctx
+                    CCCryptorRelease((recv_ctx?.ctx)!);
+                }
+                
+                
+                if used_Length  == encrypt_bytes.length {
+                    //正好全部解完
+                    return r0
+                }else {
+                    result.appendData(r0!)
+                }
+                //let iv:NSData =  encrypt_bytes.subdataWithRange(NSMakeRange(0,m.iv_size))
+            }
+            
+            if lettnoiseLength > 0 {
+                let left = encrypt_bytes.length - used_Length
+                if left >= lettnoiseLength{
+                    
+                    used_Length += lettnoiseLength
+                    lettnoiseLength -= lettnoiseLength
+                }else {
+                    used_Length += left
+                    lettnoiseLength -= left
+                    return result
+                }
+                
+            }
+            //是否还有packet 需要解?
+            let  left = encrypt_bytes.length - used_Length
+            if left > 0 {
+                
+                let leftdata = encrypt_bytes.subdataWithRange(NSMakeRange(used_Length,encrypt_bytes.length - used_Length))
+                
+                if let r2 =  descrypt(ramdonKey!, encrypt_bytes_pre: leftdata) {
+                    result.appendData(r2)
+                }
+                return result
+            }else {
+                //解完了
+                return result
+            }
+            
+
+        }else {
+            if leftdataLength > 0 || lettnoiseLength > 0  {
+                
+                AxLogger.log("ivBuffer error",level:  .Error)
+                
+            }
+            
+            ivBuffer.appendData(encrypt_bytes)
+            if let r = descrypt(key,encrypt_bytes_pre:ivBuffer){
+                return r
+            }
+            return nil
+
+        }
+        
+
+        
+        
+                //return nil
+    }
+    func descrypt(key:NSData,encrypt_bytes_pre:NSData) ->NSData?{
+        //可能有多个加密包
+        //if encrypt_bytes.length < Encrypt.ENCRYPT_SIZE{
+        //    ivBuffer.appendData(encrypt_bytes)
+        //}
+        var used_length = 0
+        let total_len = encrypt_bytes_pre.length
+        var result = NSMutableData.init()
+        while used_length <=  total_len {
+            if total_len < Encrypt.ENCRYPT_SIZE {
+                ivBuffer.setData(encrypt_bytes_pre)
+                return nil
+            }
+            var tempData = encrypt_bytes_pre.subdataWithRange(NSMakeRange(0, Encrypt.ENCRYPT_SIZE))
+            used_length += Encrypt.ENCRYPT_SIZE
+            let sizes = getBlockSizes(tempData)
+            if sizes.count != 2 {
+                AxLogger.log("data size and noise size error",level:  .Error)
+            }else {
+                leftdataLength = sizes[0]
+                lettnoiseLength  = sizes[1]
+                AxLogger.log("data size:\(leftdataLength) and noise size: \(lettnoiseLength)",level:  .Debug)
+            }
+            
+            if used_length + m.iv_size < total_len{
+                tempData = encrypt_bytes_pre.subdataWithRange(NSMakeRange(used_length,total_len - used_length))
+                ivBuffer.setData(tempData)
+                return nil
+            }else {
+                tempData = encrypt_bytes_pre.subdataWithRange(NSMakeRange(used_length,m.iv_size))
+                used_length += m.iv_size
+            }
+            recv_iv = tempData //初始化IV
+            
+            if used_length + leftdataLength <= total_len {
+                //enough 
+                tempData = encrypt_bytes_pre.subdataWithRange(NSMakeRange(used_length,leftdataLength))
+                used_length += leftdataLength
+                leftdataLength = 0
+            }else {
+                tempData = encrypt_bytes_pre.subdataWithRange(NSMakeRange(used_length,total_len - used_length))
+                used_length += total_len - used_length
+                leftdataLength -= total_len - used_length
+            }
+            
+            if let t = decrypt(key, encrypt_bytes: tempData, iv: recv_iv!){
+                result.appendData(t)
+                
+            }
+            
+            if leftdataLength == 0 {
+                recv_iv = nil
+                //recv_ctx?.ctx = nil // reset ctx
+                CCCryptorRelease((recv_ctx?.ctx)!)
+                
+                let l_len = total_len - used_length
+                //left len
+                
+                if lettnoiseLength <= l_len {
+                    lettnoiseLength = 0
+                    used_length += lettnoiseLength
+                }else {
+                    lettnoiseLength -= l_len
+                    used_length += l_len
+                }
+                
+            }else {
+                // > 0 
+                return result
+            }
+            //var left_length = total_len - used_length
+            
+        }
+        
+        
+        
+       
+        
+//        let iv:NSData =  encrypt_bytes.subdataWithRange(NSMakeRange(used_Length,m.iv_size))
+//        used_Length += m.iv_size
+//        let left:NSData = encrypt_bytes.subdataWithRange(NSMakeRange(used_Length,encrypt_bytes.length - used_Length))
+//
+//        let iv:NSData =  encrypt_bytes.subdataWithRange(NSMakeRange(used_Length,m.iv_size))
+//        used_Length += m.iv_size
+//        let left:NSData = encrypt_bytes.subdataWithRange(NSMakeRange(used_Length,encrypt_bytes.length - used_Length))
+//        let r2 =  decrypt(ramdonKey!, encrypt_bytes:left , iv: iv)
+//        result.appendData(r2!)
+//        return r2
+        return result
+        
     }
     /**
      * 解密
@@ -160,26 +354,38 @@ class Encrypt: SSEncrypt{
      * 				解密数据
      *
      */
+    
     func decrypt(key:NSData , encrypt_bytes:NSData,iv:NSData) ->NSData?{
         // Create Cryptor
-        var  cryptor :CCCryptorRef = CCCryptorRef();
         
-        let  createDecrypt:CCCryptorStatus = CCCryptorCreateWithMode(CCOperation(kCCDecrypt), // operation
-            CCMode(kCCModeCFB), // mode CTR
-            CCAlgorithm(kCCAlgorithmAES128),//kCCAlgorithmAES, // Algorithm
-            CCPadding(ccNoPadding), // padding
-            iv.bytes, // can be NULL, because null is full of zeros
-            key.bytes, // key
-            key.length, // keylength
-            nil, //const void *tweak
-            0, //size_t tweakLength,
-            0, //int numRounds,
-            0, //CCModeOptions options,
-            &cryptor); //CCCryptorRef *cryptorRef
+        if recv_ctx == nil {
+            recv_ctx = enc_ctx.init(key: key, iv: iv, encrypt: false, method: m)
+        }else {
+            if recv_ctx!.ctx == nil {
+                let  createDecrypt:CCCryptorStatus = CCCryptorCreateWithMode(CCOperation(kCCDecrypt), // operation
+                    CCMode(kCCModeCFB), // mode CTR
+                    CCAlgorithm(kCCAlgorithmAES128),//kCCAlgorithmAES, // Algorithm
+                    CCPadding(ccNoPadding), // padding
+                    iv.bytes, // can be NULL, because null is full of zeros
+                    key.bytes, // key
+                    key.length, // keylength
+                    nil, //const void *tweak
+                    0, //size_t tweakLength,
+                    0, //int numRounds,
+                    0, //CCModeOptions options,
+                    &recv_ctx!.ctx); //CCCryptorRef *cryptorRef
+                if (createDecrypt == CCCryptorStatus(kCCSuccess)){
+                    AxLogger.log("create decrypt env error", level: .Error)
+                    
+                }
+            }
+        }
         
         
-        if (createDecrypt == CCCryptorStatus(kCCSuccess))
-        {
+        
+        
+        let ctx = recv_ctx!.ctx
+        
             // Alloc Data Out
             let cipherDataDecrypt:NSMutableData = NSMutableData.init(capacity:encrypt_bytes.length+kCCBlockSizeAES128)!;
             
@@ -187,7 +393,7 @@ class Encrypt: SSEncrypt{
             var  outLengthDecrypt:NSInteger = 0
             
             //Update Cryptor
-            let updateDecrypt:CCCryptorStatus = CCCryptorUpdate(cryptor,
+            let updateDecrypt:CCCryptorStatus = CCCryptorUpdate(ctx,
                                                                 encrypt_bytes.bytes, //const void *dataIn,
                 encrypt_bytes.length,  //size_t dataInLength,
                 cipherDataDecrypt.mutableBytes, //void *dataOut,
@@ -203,21 +409,22 @@ class Encrypt: SSEncrypt{
                 //NSString* cipherFinalDecrypt = [[NSString alloc] initWithData:cipherDataDecrypt encoding:NSUTF8StringEncoding];
                 
                 //Final Cryptor
-                let final:CCCryptorStatus = CCCryptorFinal(cryptor, //CCCryptorRef cryptorRef,
+                let final:CCCryptorStatus = CCCryptorFinal(ctx, //CCCryptorRef cryptorRef,
                     cipherDataDecrypt.mutableBytes, //void *dataOut,
                     cipherDataDecrypt.length, // size_t dataOutAvailable,
                     &outLengthDecrypt); // size_t *dataOutMoved)
                 
-                if (final == CCCryptorStatus( kCCSuccess))
+                if (final != CCCryptorStatus( kCCSuccess))
                 {
                     //Release Cryptor
                     //CCCryptorStatus release =
-                    CCCryptorRelease(cryptor); //CCCryptorRef cryptorRef
+                     //CCCryptorRef cryptorRef
+                    AxLogger.log("decrypt error",level: .Debug)
                 }
                 
                 return cipherDataDecrypt ;//cipherFinalDecrypt;
             }
-        }
+        
 
         return nil
     }
@@ -386,9 +593,14 @@ class Encrypt: SSEncrypt{
                 let result = NSMutableData.init(data: size_bytes)
                 result.appendData(iv)
                 result.appendData(d)
+                
                 if (noise_bytes.length > 0) { // 是否加噪音数据
                     result.appendData(noise_bytes)
                 }
+                if r_length != result {
+                    fatalError()
+                }
+                return result
                 
             }
             
