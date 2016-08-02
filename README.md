@@ -9,3 +9,5 @@ https://appsto.re/cn/-JFQ-.i , if you like this project , you can buy A.BIG.T.
 twitter @network_ext, email: support@abigt.net
 ## License
 BSD, see LICENSE FILE
+## Donor list
+@sky4sky7
